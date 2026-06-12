@@ -1,0 +1,213 @@
+{
+  "name": "AI Content Pipeline - Trend Research to Script Generator",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "weeks",
+              "triggerAtHour": 8
+            }
+          ]
+        }
+      },
+      "id": "7b6b414b-b7ec-4fd0-b8ff-1760f38b309c",
+      "name": "Weekly Trigger - Sunday 8AM",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [-256, 112]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/videos",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "part", "value": "snippet,statistics" },
+            { "name": "chart", "value": "mostPopular" },
+            { "name": "regionCode", "value": "IN" },
+            { "name": "maxResults", "value": "20" },
+            { "name": "key", "value": "YOUR_YOUTUBE_API_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "d0a2f757-2d32-400c-90f9-df1388acf63c",
+      "name": "Agent 1 - YouTube Trend Scraper (General)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 0]
+    },
+    {
+      "parameters": {
+        "url": "https://www.googleapis.com/youtube/v3/videos",
+        "sendQuery": true,
+        "queryParameters": {
+          "parameters": [
+            { "name": "part", "value": "snippet,statistics" },
+            { "name": "chart", "value": "mostPopular" },
+            { "name": "regionCode", "value": "IN" },
+            { "name": "videoCategoryId", "value": "22" },
+            { "name": "maxResults", "value": "20" },
+            { "name": "key", "value": "YOUR_YOUTUBE_API_KEY" }
+          ]
+        },
+        "options": {}
+      },
+      "id": "331f8fe1-64f9-4171-9b4b-af84f149426e",
+      "name": "Agent 1B - YouTube Trend Scraper (Niche Category)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [0, 208]
+    },
+    {
+      "parameters": {},
+      "id": "14a34b0f-b575-42e8-9bc2-7c15d4287cb3",
+      "name": "Merge Trend Data",
+      "type": "n8n-nodes-base.merge",
+      "typeVersion": 3,
+      "position": [256, 112]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Flatten both trend sources into a single readable list for the AI agents\nconst items = $input.all();\nconst videos = [];\n\nfor (const item of items) {\n  if (item.json.items) {\n    for (const video of item.json.items) {\n      videos.push(\n        `TITLE: ${video.snippet.title} | VIEWS: ${video.statistics.viewCount} | CHANNEL: ${video.snippet.channelTitle}`\n      );\n    }\n  }\n}\n\nreturn [{ json: { videoList: videos.join('\\n') } }];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [464, 112],
+      "id": "b7bd0625-00de-4043-837c-ee342b73a1dc",
+      "name": "Format Trend Data"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "YOUR_ANTHROPIC_API_KEY" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1500,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": {{ JSON.stringify('You are a viral content analyst. Here is real trending YouTube data this week:\\n\\n' + $json.videoList + '\\n\\nIdentify the TOP 5 videos by view count. For each one explain: WHY it went viral, what NICHE it belongs to, and give a replication score 1-10 for a new creator in [YOUR NICHE]. Format each as:\\nTITLE / VIEWS / NICHE / WHY VIRAL / SCORE') }}\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "e361bc6a-be50-4ee8-851c-856a277d2ee9",
+      "name": "Agent 2 - Viral Content Analyst",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [720, 112]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "YOUR_ANTHROPIC_API_KEY" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 2000,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a scriptwriter for [CREATOR NAME] — a creator in [NICHE] based in [LOCATION].\\n\\n=== CREATOR VOICE PROFILE (replace with your creator's actual philosophy) ===\\nCore stance: [e.g. 'Never takes sides — acknowledges multiple perspectives without forcing resolution']\\nAudience: [Describe who they're speaking to and what tension that audience holds]\\nTone: [e.g. 'Warm, observational, never preachy']\\n=== END VOICE PROFILE ===\\n\\nWrite ONE original 60-90 second script on a relevant topic for this creator.\\n\\nStructure:\\n- Hook (5 sec): An observation or question that stops the scroll\\n- Development (25 sec): Explore the topic in the creator's voice\\n- Core Message (30 sec): The main point, delivered per the voice profile\\n- Close (10 sec): End in a way consistent with the creator's style (CTA, open question, etc. per their profile)\\n\\nAdd natural stage directions in brackets, e.g. [PAUSE], [SMILE], [LOOK AWAY].\\n\\nAlso include:\\nFILMING MOOD: (lighting, setting, energy)\\nB-ROLL IDEAS: 3 shots\\nMUSIC VIBE: specific mood\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "06cacfee-4b2e-4cfb-a401-e60203a65483",
+      "name": "Agent 3 - Script Ghostwriter",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [960, 112]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://api.anthropic.com/v1/messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-api-key", "value": "YOUR_ANTHROPIC_API_KEY" },
+            { "name": "anthropic-version", "value": "2023-06-01" },
+            { "name": "content-type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"model\": \"claude-sonnet-4-6\",\n  \"max_tokens\": 1000,\n  \"messages\": [\n    {\n      \"role\": \"user\",\n      \"content\": \"You are a hook specialist for [CREATOR NAME] — see voice profile from the previous script.\\n\\nHook philosophy: [Describe what hooks should and shouldn't do for this creator — e.g. 'No clickbait, no shock tactics, should feel like a mirror for the viewer']\\n\\nBased on the script provided, generate 5 hooks.\\n\\nEach hook must:\\n- Be under 8 seconds when spoken aloud (max 20 words)\\n- Match the creator's voice profile\\n- Work for both YouTube Shorts and Instagram Reels\\n\\nFormat:\\nHOOK 1 (Observation): [hook]\\nHOOK 2 (Question): [hook]\\nHOOK 3 (Contradiction): [hook]\\nHOOK 4 (Relatable Tension): [hook]\\nHOOK 5 (Poetic/Stylistic): [hook]\\n\\nThen recommend the TOP HOOK and explain in one sentence why it best fits this creator's voice.\"\n    }\n  ]\n}",
+        "options": {}
+      },
+      "id": "8eecbe57-b056-451b-bcbb-c6e69341e23c",
+      "name": "Agent 4 - Hook Generator",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [1216, 112]
+    },
+    {
+      "parameters": {
+        "sendTo": "your-email@example.com",
+        "subject": "🎬 Your Weekly Content Script is Ready! - {{ $now.format('DD MMM YYYY') }}",
+        "emailType": "text",
+        "message": "=Hi! 👋\n\nYour AI content team has been working hard this week. Here's everything you need to record this week's video:\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n📊 VIRAL TREND ANALYSIS\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n{{ $('Agent 2 - Viral Content Analyst').item.json.content[0].text }}\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n🎬 YOUR SCRIPT THIS WEEK\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n{{ $('Agent 3 - Script Ghostwriter').item.json.content[0].text }}\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n🪝 YOUR 5 HOOKS (pick your favourite!)\n━━━━━━━━━━━━━━━━━━━━━━━━\n\n{{ $('Agent 4 - Hook Generator').item.json.content[0].text }}\n\n━━━━━━━━━━━━━━━━━━━━━━━━\n\nHappy recording! You've got this 🌟\n\nYour Content AI Team",
+        "options": {}
+      },
+      "id": "08b9cd76-b1c9-40e8-82b5-0ca37e6e1c7c",
+      "name": "Send Weekly Brief to Gmail",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 2.1,
+      "position": [1472, 112],
+      "webhookId": "REPLACE_WITH_YOUR_WEBHOOK_ID",
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "YOUR_CREDENTIAL_ID",
+          "name": "Gmail OAuth2 API"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Weekly Trigger - Sunday 8AM": {
+      "main": [
+        [
+          { "node": "Agent 1 - YouTube Trend Scraper (General)", "type": "main", "index": 0 },
+          { "node": "Agent 1B - YouTube Trend Scraper (Niche Category)", "type": "main", "index": 0 }
+        ]
+      ]
+    },
+    "Agent 1 - YouTube Trend Scraper (General)": {
+      "main": [[{ "node": "Merge Trend Data", "type": "main", "index": 0 }]]
+    },
+    "Agent 1B - YouTube Trend Scraper (Niche Category)": {
+      "main": [[{ "node": "Merge Trend Data", "type": "main", "index": 1 }]]
+    },
+    "Merge Trend Data": {
+      "main": [[{ "node": "Format Trend Data", "type": "main", "index": 0 }]]
+    },
+    "Format Trend Data": {
+      "main": [[{ "node": "Agent 2 - Viral Content Analyst", "type": "main", "index": 0 }]]
+    },
+    "Agent 2 - Viral Content Analyst": {
+      "main": [[{ "node": "Agent 3 - Script Ghostwriter", "type": "main", "index": 0 }]]
+    },
+    "Agent 3 - Script Ghostwriter": {
+      "main": [[{ "node": "Agent 4 - Hook Generator", "type": "main", "index": 0 }]]
+    },
+    "Agent 4 - Hook Generator": {
+      "main": [[{ "node": "Send Weekly Brief to Gmail", "type": "main", "index": 0 }]]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "triggerCount": 0,
+  "meta": {
+    "templateCredsSetupCompleted": false
+  }
+}
